@@ -10,7 +10,11 @@ from pathlib import Path
 
 from feature.transfer_service import TransferService, get_local_ip
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = (
+    Path(sys.executable).resolve().parent
+    if getattr(sys, "frozen", False)
+    else Path(__file__).resolve().parent
+)
 DEFAULT_FOLDER = Path.home() / "Downloads" / "QuickSend"
 DEFAULT_DATABASE = BASE_DIR / "quicksend.db"
 
