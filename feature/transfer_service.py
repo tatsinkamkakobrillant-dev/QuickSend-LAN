@@ -38,12 +38,11 @@ MSG_ACK = 4        # accusement de réception d'un morceau
 MSG_RESULT = 5     # résultat final du transfert
 MSG_DISCOVER = 6   # recherche d'appareils sur le LAN
 MSG_ANNOUNCE = 7   # réponse à une recherche
-MSG_DONE = 8       # le expéditeur demande le résultat final
+MSG_DONE = 8       # l'expéditeur demande le résultat final
 
-# magic, version, type, session, numéro de séquence, longueur des données
-_HEADER = struct.Struct("!4sBB16sII")
+_HEADER = struct.Struct("!4sBB16sII")  # magic, version, type, session, seq, taille
 HEADER_SIZE = _HEADER.size
-MAX_PAYLOAD = 1200                  # < MTU ethernet (pas de fragmentation IP)
+MAX_PAYLOAD = 1200                     # < MTU ethernet (pas de fragmentation IP)
 MAX_DATAGRAM = HEADER_SIZE + MAX_PAYLOAD + 64
 
 ProgressCallback = Callable[[int, int], None]
@@ -140,7 +139,7 @@ class TransferService:
         self.ack_timeout = ack_timeout
         self.max_retries = max_retries
 
-        self.transfer_timeout = 15.0   # inactivity maximale pendant une réception
+        self.transfer_timeout = 15.0   # inactivité maximale pendant une réception
         self.result_window = 2.0       # durée pendant laquelle on redit le résultat
 
         self._stop_event = threading.Event()
@@ -262,7 +261,7 @@ class TransferService:
 
         sock = self._make_socket()
         peer = (host, self.port)
-        final_payload: dict | None = None
+        completed = False
 
         try:
             answer = self._request(
@@ -280,7 +279,6 @@ class TransferService:
             peer = (host, int(content["port"]))
 
             total_chunks = math.ceil(size / self.CHUNK_SIZE)
-            completed = False
 
             with path.open("rb") as source:
                 for seq in range(1, total_chunks + 1):
@@ -303,10 +301,10 @@ class TransferService:
                             continue
 
                         if answer.type == MSG_RESULT:
-                            final_payload = _json_dict(answer.payload)
-                            if not final_payload.get("ok"):
+                            final = _json_dict(answer.payload)
+                            if not final.get("ok"):
                                 raise RuntimeError(
-                                    final_payload.get("error", "Erreur de réception")
+                                    final.get("error", "Erreur de réception")
                                 )
                             completed = True
                             break
@@ -339,14 +337,12 @@ class TransferService:
                             f"Échec de l'envoi vers {host}: {exc}"
                         ) from exc
 
-                    answer = self._wait_for(
-                        sock, session, {MSG_RESULT}, peer=peer
-                    )
+                    answer = self._wait_for(sock, session, {MSG_RESULT}, peer=peer)
                     if answer is not None:
-                        final_payload = _json_dict(answer.payload)
-                        if not final_payload.get("ok"):
+                        final = _json_dict(answer.payload)
+                        if not final.get("ok"):
                             raise RuntimeError(
-                                final_payload.get("error", "Erreur de réception")
+                                final.get("error", "Erreur de réception")
                             )
                         completed = True
                         break
@@ -501,9 +497,7 @@ class TransferService:
                 temporary.write(packet.payload)
                 received.add(seq)
 
-                ack = _Packet.encode(
-                    MSG_ACK, session, seq, _json_bytes({"seq": seq})
-                )
+                ack = _Packet.encode(MSG_ACK, session, seq, _json_bytes({"seq": seq}))
                 self._safe_send(transfer_socket, ack, sender)
 
             if self._stop_event.is_set():
@@ -537,9 +531,7 @@ class TransferService:
             with self._sockets_lock:
                 self._active_sockets.discard(transfer_socket)
 
-        result_packet = _Packet.encode(
-            MSG_RESULT, session, 0, _json_bytes(result)
-        )
+        result_packet = _Packet.encode(MSG_RESULT, session, 0, _json_bytes(result))
         self._safe_send(transfer_socket, result_packet, peer)
 
         # Le résultat peut être perdu : on répond aux nouvelles demandes du
@@ -608,11 +600,18 @@ class TransferService:
                     continue
 
                 ip = address[0]
-                devices[ip] = {
-                    "name": str(info.get("name") or ip),
-                    "ip": ip,
-                    "port": int(info.get("port", self.port)),
-                }
+                name = str(info.get("name") or ip)
+                port = int(info.get("port", self.port))
+                # Le même appareil peut répondre en broadcast et en loopback :
+                # on écarte l'adresse locale si l'adresse LAN est déjà connue.
+                if ip == "127.0.0.1" and any(
+                    item["name"] == name
+                    and item["port"] == port
+                    and item["ip"] != "127.0.0.1"
+                    for item in devices.values()
+                ):
+                    continue
+                devices[ip] = {"name": name, "ip": ip, "port": port}
         finally:
             sock.close()
 

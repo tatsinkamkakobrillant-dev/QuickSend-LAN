@@ -4,7 +4,7 @@ import customtkinter as ctk
 
 class AboutPage(ctk.CTkFrame):
 
-    def __init__(self, parent):
+    def __init__(self, parent, service=None):
         super().__init__(parent, fg_color="transparent")
 
         ctk.CTkLabel(
