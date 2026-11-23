@@ -106,6 +106,27 @@ def get_local_ip() -> str:
         probe.close()
 
 
+def find_available_udp_port(preferred: int = 5000, attempts: int = 20) -> int:
+    """Retourne ``preferred`` s'il est libre, sinon un port UDP libre proche.
+
+    Cela permet à plusieurs collaborateurs de lancer QuickSend sur la même
+    machine sans que l'application refuse de démarrer.
+    """
+    for port in range(preferred, min(65535, preferred + attempts) + 1):
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            probe.bind(("0.0.0.0", port))
+            return port
+        except OSError:
+            continue
+        finally:
+            probe.close()
+
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        probe.bind(("0.0.0.0", 0))
+        return int(probe.getsockname()[1])
+
+
 _IPV4_LINE = re.compile(
     r"(?:IPv4\s+Address|Adresse\s+IPv4)[^\n:]*:\s*(\d{1,3}(?:\.\d{1,3}){3})",
     re.IGNORECASE,

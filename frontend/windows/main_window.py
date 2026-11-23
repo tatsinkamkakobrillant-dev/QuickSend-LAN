@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import customtkinter as ctk
 
-from feature.transfer_service import TransferService
+from feature.transfer_service import TransferService, find_available_udp_port
 
 from frontend.components.sidebar import Sidebar
 from frontend.components.header import Header
@@ -32,12 +32,15 @@ class MainWindow(ctk.CTk):
     ):
         super().__init__()
 
-        self.service = service or TransferService(
-            receive_folder=receive_folder,
-            database_path=database_path,
-            port=port,
-            device_name=device_name,
-        )
+        if service is None:
+            port = find_available_udp_port(port)
+            service = TransferService(
+                receive_folder=receive_folder,
+                database_path=database_path,
+                port=port,
+                device_name=device_name,
+            )
+        self.service = service
         self.service.start()
 
         self.title("QuickSend LAN")

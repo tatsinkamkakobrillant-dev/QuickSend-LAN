@@ -5,6 +5,32 @@ transmis en **UDP** : chaque datagramme est accusé réception par le destinatai
 et renvoyé si l'accusement n'arrive pas, ce qui garantit une copie intacte même
 si UDP ne garantit rien par lui-même.
 
+## Démarrage rapide (nouveau collaborateur)
+
+**Windows :** double-cliquez sur `run.bat`. Le script vérifie Python, installe les
+dépendances si besoin et lance l'application.
+
+**Linux / macOS :**
+
+```bash
+chmod +x run.sh
+./run.sh
+```
+
+**Manuel :**
+
+```powershell
+git clone https://github.com/tatsinkamkakobrillant-dev/QuickSend-LAN.git
+cd QuickSend-LAN
+python -m pip install -r requirements.txt
+python main.py
+```
+
+Python 3.10 ou plus est nécessaire. Sous Linux, installez aussi Tkinter
+(`sudo apt install python3-tk` sur Debian/Ubuntu). Si le port 5000 est déjà
+occupé, QuickSend choisit automatiquement un port voisin et l'annonce sur le
+réseau.
+
 ## 1. Présentation du projet
 
 QuickSend LAN facilite le transfert de fichiers entre plusieurs ordinateurs
@@ -167,6 +193,10 @@ Projet académique : backend UDP, interface graphique et historique fonctionnels
 - Gestion du code source : Git et GitHub
 
 ## 14. Créer l'exécutable Windows
+
+**Windows :** double-cliquez sur `build.bat`.
+
+**Manuel :**
 
 ```powershell
 python -m pip install pyinstaller

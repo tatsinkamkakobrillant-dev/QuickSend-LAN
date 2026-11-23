@@ -8,7 +8,11 @@ import sys
 import time
 from pathlib import Path
 
-from feature.transfer_service import TransferService, get_local_ip
+from feature.transfer_service import (
+    TransferService,
+    find_available_udp_port,
+    get_local_ip,
+)
 
 BASE_DIR = (
     Path(sys.executable).resolve().parent
@@ -72,6 +76,14 @@ def _print_progress(sent: int, total: int) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+
+    # Sur une machine où un autre QuickSend (ou un autre programme) occupe déjà
+    # le port, on bascule sur un port voisin plutôt que de refuser de démarrer.
+    if args.mode in {"gui", "receive"}:
+        available_port = find_available_udp_port(args.port)
+        if available_port != args.port:
+            print(f"Port UDP {args.port} occupé, utilisation du port {available_port}.")
+            args.port = available_port
 
     if args.mode == "gui":
         try:

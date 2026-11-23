@@ -6,10 +6,17 @@ import hashlib
 import ipaddress
 import os
 import socket
+import sys
 import tempfile
 import threading
 import unittest
 from pathlib import Path
+
+# Permet de lancer les tests depuis n'importe quel dossier, y compris après un
+# clonage frais du dépôt.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from feature import transfer_service as ts
 from feature.transfer_service import TransferService
@@ -217,6 +224,18 @@ class TransferServiceTests(unittest.TestCase):
         self.assertFalse(errors, msg=f"Erreurs de transfert : {errors}")
         self.assertEqual((self.received_dir / "a.txt").read_bytes(), b"A" * 5_000)
         self.assertEqual((self.received_dir / "b.txt").read_bytes(), b"B" * 7_000)
+
+    def test_fallback_port_when_preferred_is_busy(self) -> None:
+        busy_port = _free_port()
+        blocker = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        blocker.bind(("0.0.0.0", busy_port))
+        try:
+            chosen = ts.find_available_udp_port(busy_port, attempts=5)
+        finally:
+            blocker.close()
+
+        self.assertNotEqual(chosen, busy_port)
+        self.assertTrue(1 <= chosen <= 65535)
 
     def test_invalid_ip_is_rejected(self) -> None:
         source = self._make_file("test.txt", b"contenu")
