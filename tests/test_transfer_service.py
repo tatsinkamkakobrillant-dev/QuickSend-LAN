@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import os
 import socket
 import tempfile
@@ -100,6 +101,74 @@ class TransferServiceTests(unittest.TestCase):
             any(device["name"] == "PC-TEST" for device in devices),
             msg=f"Appareils découverts : {devices}",
         )
+
+    def test_discovery_uses_every_local_network_broadcast(self) -> None:
+        sent: list[tuple[str, int]] = []
+
+        class FakeSocket:
+            def setsockopt(self, *_args) -> None:
+                pass
+
+            def sendto(self, _payload: bytes, target: tuple[str, int]) -> None:
+                sent.append(target)
+
+            def settimeout(self, _value: float) -> None:
+                pass
+
+            def recvfrom(self, _size: int):
+                raise socket.timeout
+
+            def close(self) -> None:
+                pass
+
+        interfaces = [
+            ("192.168.10.5", ipaddress.ip_network("192.168.10.0/24")),
+            ("10.0.0.8", ipaddress.ip_network("10.0.0.0/24")),
+        ]
+        original_interfaces = ts._local_ipv4_interfaces
+        original_socket = self.service._make_socket
+        ts._local_ipv4_interfaces = lambda: interfaces
+        self.service._make_socket = lambda: FakeSocket()
+
+        try:
+            devices = self.service.discover_devices(timeout=0.05)
+        finally:
+            ts._local_ipv4_interfaces = original_interfaces
+            self.service._make_socket = original_socket
+
+        self.assertEqual(devices, [])
+        self.assertIn(("192.168.10.255", self.service.port), sent)
+        self.assertIn(("10.0.0.255", self.service.port), sent)
+        self.assertIn(("<broadcast>", self.service.port), sent)
+        self.assertIn(("127.0.0.1", self.service.port), sent)
+
+    def test_scan_network_marks_quickSend_and_other_devices(self) -> None:
+        interfaces = [("192.168.50.10", ipaddress.ip_network("192.168.50.0/24"))]
+        original_interfaces = ts._local_ipv4_interfaces
+        original_discover = self.service.discover_devices
+        original_ping = self.service._ping
+
+        ts._local_ipv4_interfaces = lambda: interfaces
+        self.service.discover_devices = lambda timeout=1.0: [
+            {"name": "PC-QUICKSEND", "ip": "192.168.50.20", "port": 5000}
+        ]
+        self.service._ping = lambda host, timeout=0.5: host in {
+            "192.168.50.20",
+            "192.168.50.30",
+        }
+
+        try:
+            devices = self.service.scan_network(timeout=0.2)
+        finally:
+            ts._local_ipv4_interfaces = original_interfaces
+            self.service.discover_devices = original_discover
+            self.service._ping = original_ping
+
+        by_ip = {str(device["ip"]): device for device in devices}
+        self.assertEqual(by_ip["192.168.50.20"]["kind"], "quicksend")
+        self.assertEqual(by_ip["192.168.50.20"]["name"], "PC-QUICKSEND")
+        self.assertEqual(by_ip["192.168.50.30"]["kind"], "network")
+        self.assertNotIn("192.168.50.10", by_ip)
 
     def test_lost_datagram_is_retransmitted(self) -> None:
         content = (

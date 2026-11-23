@@ -11,13 +11,16 @@ import ipaddress
 import json
 import math
 import os
+import re
 import socket
 import sqlite3
 import struct
+import subprocess
 import tempfile
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -101,6 +104,81 @@ def get_local_ip() -> str:
         return "Non disponible"
     finally:
         probe.close()
+
+
+_IPV4_LINE = re.compile(
+    r"(?:IPv4\s+Address|Adresse\s+IPv4)[^\n:]*:\s*(\d{1,3}(?:\.\d{1,3}){3})",
+    re.IGNORECASE,
+)
+_MASK_LINE = re.compile(
+    r"(?:Subnet\s+Mask|Masque\s+de\s+sous-réseau)[^\n:]*:\s*"
+    r"(\d{1,3}(?:\.\d{1,3}){3})",
+    re.IGNORECASE,
+)
+
+
+def _local_ipv4_interfaces() -> list[tuple[str, ipaddress.IPv4Network]]:
+    """Retourne (adresse IP locale, réseau) pour chaque carte réseau active.
+
+    ``ipconfig`` est utilisé sous Windows pour connaître le vrai masque. La
+    méthode reste fonctionnelle sur les autres systèmes avec un /24 par défaut.
+    """
+    pairs: list[tuple[str, str | None]] = []
+
+    try:
+        output = subprocess.run(
+            ["ipconfig"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=3,
+            check=False,
+        ).stdout or ""
+        address = None
+        for line in output.splitlines():
+            match = _IPV4_LINE.search(line)
+            if match:
+                address = match.group(1)
+                continue
+            match = _MASK_LINE.search(line)
+            if match and address:
+                pairs.append((address, match.group(1)))
+                address = None
+        if address:
+            pairs.append((address, None))
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    if not pairs:
+        try:
+            for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+                ip = info[4][0]
+                if ip != "127.0.0.1":
+                    pairs.append((ip, None))
+        except OSError:
+            pass
+
+    interfaces: list[tuple[str, ipaddress.IPv4Network]] = []
+    seen: set[tuple[str, str]] = set()
+    for address, mask in pairs:
+        if not address or address == "127.0.0.1":
+            continue
+        try:
+            prefix = (
+                ipaddress.IPv4Network(f"0.0.0.0/{mask}", strict=False).prefixlen
+                if mask
+                else 24
+            )
+            network = ipaddress.IPv4Network(f"{address}/{prefix}", strict=False)
+        except (ValueError, ipaddress.AddressValueError):
+            continue
+
+        key = (address, str(network))
+        if key not in seen:
+            seen.add(key)
+            interfaces.append((address, network))
+
+    return interfaces
 
 
 # ---------------------------------------------------------------------------
@@ -562,20 +640,65 @@ class TransferService:
     # Découverte et historique
     # ------------------------------------------------------------------
 
-    def discover_devices(self, timeout: float = 1.0) -> list[dict[str, str | int]]:
-        """Cherche les appareils QuickSend sur le réseau local."""
-        session = uuid.uuid4().bytes
-        sock = self._make_socket()
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        probe = _Packet.encode(MSG_DISCOVER, session)
-        devices: dict[str, dict[str, str | int]] = {}
+    def _own_ipv4_addresses(self) -> set[str]:
+        """Adresses IP de cette machine, exclues du scan réseau."""
+        addresses = {"127.0.0.1"}
+        for address, _ in _local_ipv4_interfaces():
+            addresses.add(address)
+        local = get_local_ip()
+        if local.count(".") == 3:
+            addresses.add(local)
+        return addresses
+
+    @staticmethod
+    def _ping(host: str, timeout: float = 0.5) -> bool:
+        """Vérifie qu'une IP répond, sans dépendance externe."""
+        if os.name == "nt":
+            command = ["ping", "-n", "1", "-w", str(int(timeout * 1000)), host]
+        else:
+            command = ["ping", "-c", "1", "-W", str(max(1, int(timeout))), host]
 
         try:
-            for target in ("<broadcast>", "127.0.0.1"):
-                try:
-                    sock.sendto(probe, (target, self.port))
-                except OSError:
-                    pass
+            result = subprocess.run(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout + 1,
+                check=False,
+            )
+            return result.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+    def discover_devices(self, timeout: float = 1.0) -> list[dict[str, str | int]]:
+        """Cherche les appareils QuickSend sur **tous** les réseaux locaux.
+
+        Le broadcast limité (``255.255.255.255``) ne sort parfois que par une
+        seule carte réseau sous Windows. On envoie donc aussi un paquet vers
+        l'adresse de broadcast de chaque interface (WiFi, Ethernet, VPN...).
+        """
+        session = uuid.uuid4().bytes
+        probe = _Packet.encode(MSG_DISCOVER, session)
+
+        targets = {"<broadcast>", "127.0.0.1"}
+        for _, network in _local_ipv4_interfaces():
+            targets.add(str(network.broadcast_address))
+
+        sock = self._make_socket()
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+
+        # Clé (nom, port) : un appareil qui répond en WiFi et en loopback
+        # n'apparaît qu'une fois, avec de préférence son IP LAN.
+        devices: dict[tuple[str, int], dict[str, str | int]] = {}
+
+        try:
+            for _ in range(2):
+                for target in targets:
+                    try:
+                        sock.sendto(probe, (target, self.port))
+                    except OSError:
+                        pass
+                time.sleep(0.05)
 
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
@@ -601,21 +724,79 @@ class TransferService:
 
                 ip = address[0]
                 name = str(info.get("name") or ip)
-                port = int(info.get("port", self.port))
-                # Le même appareil peut répondre en broadcast et en loopback :
-                # on écarte l'adresse locale si l'adresse LAN est déjà connue.
-                if ip == "127.0.0.1" and any(
-                    item["name"] == name
-                    and item["port"] == port
-                    and item["ip"] != "127.0.0.1"
-                    for item in devices.values()
-                ):
+                try:
+                    port = int(info.get("port", self.port))
+                except (TypeError, ValueError):
+                    port = self.port
+
+                key = (name, port)
+                existing = devices.get(key)
+                if existing and ip == "127.0.0.1" and existing["ip"] != "127.0.0.1":
                     continue
-                devices[ip] = {"name": name, "ip": ip, "port": port}
+                devices[key] = {"name": name, "ip": ip, "port": port}
         finally:
             sock.close()
 
         return list(devices.values())
+
+    def scan_network(self, timeout: float = 6.0) -> list[dict[str, str | int]]:
+        """Liste les machines joignables du WiFi, même sans QuickSend.
+
+        Les appareils qui répondent à la découverte UDP sont marqués
+        ``quicksend`` : ce sont les seuls auxquels on peut envoyer un fichier.
+        Les autres sont détectés par un balayage ICMP rapide de chaque /24 local.
+        """
+        quicksend = self.discover_devices(timeout=min(1.2, timeout / 3))
+        quicksend_by_ip = {str(device["ip"]): device for device in quicksend}
+
+        own_ips = self._own_ipv4_addresses()
+        candidates: set[str] = set()
+        for _, network in _local_ipv4_interfaces():
+            # Un /24 par interface : assez large pour un WiFi domestique, assez
+            # petit pour rester rapide même avec un masque /8 ou /16.
+            scanned = ipaddress.IPv4Network(
+                f"{network.network_address}/24", strict=False
+            )
+            for host in scanned.hosts():
+                ip = str(host)
+                if ip not in own_ips:
+                    candidates.add(ip)
+
+        ping_timeout = 0.35
+        alive: set[str] = set()
+        if candidates:
+            with ThreadPoolExecutor(max_workers=48) as pool:
+                futures = {
+                    pool.submit(self._ping, ip, ping_timeout): ip for ip in candidates
+                }
+                for future, ip in futures.items():
+                    try:
+                        if future.result(timeout=timeout + 1):
+                            alive.add(ip)
+                    except Exception:  # noqa: BLE001 - un hôte ne bloque pas le scan
+                        pass
+
+        # Un appareil QuickSend peut bloquer les ping : on le garde quand même.
+        alive.update(quicksend_by_ip)
+
+        devices: list[dict[str, str | int]] = []
+        for ip in sorted(alive, key=lambda value: ipaddress.ip_address(value)):
+            known = quicksend_by_ip.get(ip)
+            if known:
+                devices.append(
+                    {
+                        "name": str(known["name"]),
+                        "ip": ip,
+                        "port": int(known["port"]),
+                        "kind": "quicksend",
+                    }
+                )
+            else:
+                devices.append(
+                    {"name": f"Appareil {ip}", "ip": ip, "port": 0, "kind": "network"}
+                )
+
+        return devices
 
     def get_history(self, limit: int = 100) -> list[dict[str, str]]:
         """Retourne les transferts les plus récents."""
