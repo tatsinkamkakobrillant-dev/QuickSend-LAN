@@ -1,3 +1,4 @@
+
 """Page « Envoyer un fichier » : envoi UDP réel avec suivi de progression."""
 
 from __future__ import annotations
@@ -50,7 +51,7 @@ class SendPage(ctk.CTkFrame):
             font=("Arial", 15),
             text_color="#718096",
         )
-        self.file_label.pack(pady=(22, 6))
+        self.file_label.pack(pady=(10, 2))
 
         self.file_info_label = ctk.CTkLabel(
             self.send_frame,
@@ -68,7 +69,7 @@ class SendPage(ctk.CTkFrame):
             fg_color="#1769D2",
             hover_color="#1255AD",
             command=self.select_file,
-        ).pack(pady=10)
+        ).pack(pady=5)
 
         # Destinataire
         ctk.CTkLabel(
@@ -76,7 +77,7 @@ class SendPage(ctk.CTkFrame):
             text="Appareil destinataire",
             font=("Arial", 14, "bold"),
             text_color="#142D4E",
-        ).pack(pady=(8, 6))
+        ).pack(pady=(4, 3))
 
         device_row = ctk.CTkFrame(self.send_frame, fg_color="transparent")
         device_row.pack()
@@ -105,6 +106,7 @@ class SendPage(ctk.CTkFrame):
 
         self.ip_variable = ctk.StringVar()
         self.ip_variable.trace_add("write", lambda *_: self.update_send_button())
+
         self.ip_entry = ctk.CTkEntry(
             self.send_frame,
             textvariable=self.ip_variable,
@@ -112,7 +114,7 @@ class SendPage(ctk.CTkFrame):
             width=280,
             height=36,
         )
-        self.ip_entry.pack(pady=8)
+        self.ip_entry.pack(pady=4)
 
         self.device_info_label = ctk.CTkLabel(
             self.send_frame,
@@ -125,7 +127,7 @@ class SendPage(ctk.CTkFrame):
         # Progression
         self.progress = ctk.CTkProgressBar(self.send_frame, width=420)
         self.progress.set(0)
-        self.progress.pack(pady=(14, 4))
+        self.progress.pack(pady=(6, 2))
 
         self.status_label = ctk.CTkLabel(
             self.send_frame,
@@ -133,7 +135,7 @@ class SendPage(ctk.CTkFrame):
             font=("Arial", 12),
             text_color="#52647A",
         )
-        self.status_label.pack(pady=(0, 8))
+        self.status_label.pack(pady=(0, 3))
 
         self.send_button = ctk.CTkButton(
             self.send_frame,
@@ -144,7 +146,7 @@ class SendPage(ctk.CTkFrame):
             state="disabled",
             command=self.send_file,
         )
-        self.send_button.pack(pady=(4, 18))
+        self.send_button.pack(pady=(2, 8))
 
         self._discover()
 
@@ -153,7 +155,9 @@ class SendPage(ctk.CTkFrame):
     # ------------------------------------------------------------------
 
     def select_file(self):
-        file_path = filedialog.askopenfilename(title="Sélectionner un fichier à envoyer")
+        file_path = filedialog.askopenfilename(
+            title="Sélectionner un fichier à envoyer"
+        )
         if not file_path:
             return
 
@@ -161,6 +165,7 @@ class SendPage(ctk.CTkFrame):
         filename = os.path.basename(file_path)
         extension = Path(filename).suffix
         size = os.path.getsize(file_path)
+
         size_text = (
             f"{size / 1024:.2f} Ko"
             if size < 1024 * 1024
@@ -168,14 +173,17 @@ class SendPage(ctk.CTkFrame):
         )
 
         self.file_label.configure(
-            text=f"Fichier sélectionné : {filename}", text_color="#168653"
+            text=f"Fichier sélectionné : {filename}",
+            text_color="#168653",
         )
+
         self.file_info_label.configure(
             text=(
                 f"Extension : {extension if extension else 'Aucune'}\n"
                 f"Taille : {size_text}"
             )
         )
+
         self.update_send_button()
 
     def _alive(self) -> bool:
@@ -187,7 +195,11 @@ class SendPage(ctk.CTkFrame):
     def _discover(self) -> None:
         if not self.service:
             return
-        threading.Thread(target=self._discover_worker, daemon=True).start()
+
+        threading.Thread(
+            target=self._discover_worker,
+            daemon=True,
+        ).start()
 
     def _discover_worker(self) -> None:
         devices = self.service.discover_devices(timeout=1.0)
@@ -197,8 +209,13 @@ class SendPage(ctk.CTkFrame):
         if not self._alive():
             return
 
-        self.devices = {device["name"]: device["ip"] for device in devices}
+        self.devices = {
+            device["name"]: device["ip"]
+            for device in devices
+        }
+
         values = list(self.devices) or ["Aucun appareil détecté"]
+
         self.device_menu.configure(values=values)
         self.device_menu.set(values[0])
         self.select_device(values[0])
@@ -211,17 +228,26 @@ class SendPage(ctk.CTkFrame):
         self.selected_device = device_name
         ip_address = self.devices[device_name]
         self.ip_variable.set(ip_address)
+
         self.device_info_label.configure(
             text=f"Appareil : {device_name}\nAdresse IP : {ip_address}",
             text_color="#168653",
         )
+
         self.update_send_button()
 
     def update_send_button(self) -> None:
-        ready = bool(self.selected_file) and self._valid_ip(self.ip_variable.get())
-        self.send_button.configure(state="normal" if ready and not self.sending else "disabled")
+        ready = (
+            bool(self.selected_file)
+            and self._valid_ip(self.ip_variable.get())
+        )
+
+        self.send_button.configure(
+            state="normal" if ready and not self.sending else "disabled"
+        )
 
         ip = self.ip_variable.get().strip()
+
         if ip:
             color = "#168653" if self._valid_ip(ip) else "#D18A20"
             self.device_info_label.configure(text_color=color)
@@ -240,10 +266,14 @@ class SendPage(ctk.CTkFrame):
 
     def send_file(self):
         if not self.selected_file or not os.path.isfile(self.selected_file):
-            messagebox.showerror("Erreur", "Veuillez sélectionner un fichier valide.")
+            messagebox.showerror(
+                "Erreur",
+                "Veuillez sélectionner un fichier valide.",
+            )
             return
 
         host = self.ip_variable.get().strip()
+
         if not self._valid_ip(host):
             messagebox.showwarning(
                 "Destinataire manquant",
@@ -252,19 +282,26 @@ class SendPage(ctk.CTkFrame):
             return
 
         filename = os.path.basename(self.selected_file)
+
         confirmation = messagebox.askyesno(
             "Confirmation du transfert",
             f"Envoyer ce fichier via UDP ?\n\n"
             f"Fichier : {filename}\n"
             f"Destinataire : {host}",
         )
+
         if not confirmation:
             return
 
         self.sending = True
         self.send_button.configure(state="disabled")
         self.progress.set(0)
-        self.status_label.configure(text="Transfert en cours...", text_color="#1769D2")
+
+        self.status_label.configure(
+            text="Transfert en cours...",
+            text_color="#1769D2",
+        )
+
         threading.Thread(
             target=self._send_worker,
             args=(self.selected_file, host),
@@ -276,7 +313,9 @@ class SendPage(ctk.CTkFrame):
             def update():
                 if not self._alive():
                     return
+
                 self.progress.set(sent / total if total else 1)
+
                 self.status_label.configure(
                     text=f"Transfert en cours... {sent}/{total} octets"
                 )
@@ -293,9 +332,14 @@ class SendPage(ctk.CTkFrame):
                 pass
 
         try:
-            self.service.send_file(source, host, progress=progress)
+            self.service.send_file(
+                source,
+                host,
+                progress=progress,
+            )
             schedule(lambda: self._finish(True, host))
-        except Exception as exc:  # noqa: BLE001 - erreur affichée à l'utilisateur
+
+        except Exception as exc:
             schedule(lambda error=exc: self._finish(False, error))
 
     def _finish(self, success: bool, value) -> None:
@@ -304,14 +348,27 @@ class SendPage(ctk.CTkFrame):
 
         self.sending = False
         self.update_send_button()
+
         if success:
             self.progress.set(1)
+
             self.status_label.configure(
-                text=f"Fichier envoyé à {value} ✔", text_color="#168653"
+                text=f"Fichier envoyé à {value} ✔",
+                text_color="#168653",
             )
+
             messagebox.showinfo(
-                "Transfert terminé", f"Le fichier a bien été envoyé à {value}."
+                "Transfert terminé",
+                f"Le fichier a bien été envoyé à {value}.",
             )
+
         else:
-            self.status_label.configure(text="Échec du transfert", text_color="#C53030")
-            messagebox.showerror("Échec du transfert", str(value))
+            self.status_label.configure(
+                text="Échec du transfert",
+                text_color="#C53030",
+            )
+
+            messagebox.showerror(
+                "Échec du transfert",
+                str(value),
+            )
