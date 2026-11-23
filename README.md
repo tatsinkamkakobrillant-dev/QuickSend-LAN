@@ -24,7 +24,8 @@ une interface graphique simple ou en ligne de commande.
 ## 3. Fonctionnalités
 
 - Envoi/réception de fichiers de toute taille (découpe en paquets de 1200 octets).
-- Détection des appareils QuickSend sur le LAN (UDP broadcast + loopback).
+- Détection des appareils QuickSend sur **tous les réseaux locaux** (broadcast de chaque carte WiFi/Ethernet + loopback).
+- Scan des machines joignables du WiFi (ping parallèle) avec distinction « QuickSend » / « Autre appareil ».
 - Reprise automatique sur perte de paquets (ACK par paquet + retransmission).
 - Écriture atomique : fichier temporaire puis renommage après confirmation.
 - Gestion des noms de fichiers en doublon (`rapport (1).pdf`, etc.).
@@ -70,6 +71,16 @@ python main.py
 Le récepteur UDP démarre automatiquement sur le port 5000. Les onglets permettent
 de rechercher des appareils, choisir un fichier, l'envoyer et consulter
 l'historique. Le dossier de réception par défaut est `~/Downloads/QuickSend`.
+
+⚠️ L'onglet **Appareils** affiche toutes les machines joignables du WiFi. Celles
+marquées « Prêt à recevoir » exécutent QuickSend : ce sont les seules auxquelles
+un fichier peut être envoyé. Une machine « Autre appareil » est visible sur le
+réseau mais n'a pas QuickSend lancé. Pour qu'elle apparaisse dans la liste
+d'envoi, installez/lancez QuickSend dessus.
+
+Le scan utilise le broadcast de chaque interface réseau puis un ping parallèle
+du /24 local. Si certaines machines ne répondent pas, vérifiez leur pare-feu
+(le ping ICMP doit être autorisé).
 
 ### Ligne de commande
 
@@ -154,3 +165,13 @@ Projet académique : backend UDP, interface graphique et historique fonctionnels
 - Système d'exploitation : Windows
 - Éditeur : Visual Studio Code
 - Gestion du code source : Git et GitHub
+
+## 14. Créer l'exécutable Windows
+
+```powershell
+python -m pip install pyinstaller
+python -m PyInstaller --noconfirm --clean --onefile --windowed --name QuickSend-LAN --hidden-import frontend.windows.main_window --hidden-import customtkinter main.py
+```
+
+L'exécutable est généré dans `dist\QuickSend-LAN.exe`. Il peut être copié seul
+sur un autre Windows 64 bits : Python n'est pas nécessaire sur la machine cible.
