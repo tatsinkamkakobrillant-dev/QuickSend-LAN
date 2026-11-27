@@ -2,6 +2,7 @@
 import customtkinter as ctk
 
 from frontend.components.sidebar import Sidebar
+from frontend.components.topbar import TopBar
 from frontend.components.header import Header
 from frontend.components.footer import Footer
 
@@ -12,75 +13,68 @@ from frontend.pages.receive_page import ReceivePage
 from frontend.pages.history_page import HistoryPage
 from frontend.pages.settings_page import SettingsPage
 from frontend.pages.about_page import AboutPage
+from frontend.services.app_state import AppState
 
 
 class MainWindow(ctk.CTk):
+
+    SIDEBAR_WIDTH = 190
+    COMPACT_WIDTH = 68
+    FOOTER_HEIGHT = 42
+    TOPBAR_HEIGHT = 40
+    HEADER_HEIGHT = 95
+    COMPACT_BREAKPOINT = 1050
 
     def __init__(self):
         super().__init__()
 
         self.title("QuickSend LAN")
-        self.geometry("1250x780")
-        self.minsize(1050, 680)
-        self.configure(fg_color="#F3F6FA")
+        self.geometry("1400x900+20+15")
+        self.minsize(880, 620)
+        self.configure(fg_color="#F8F9FE")
 
-        # Menu latéral
-        self.sidebar = Sidebar(
-            self,
-            on_navigate=self.show_page
+        self.app_state = AppState()
+        self.app_state.start()
+
+        self._compact = False
+        self._status_job = None
+
+        self.grid_columnconfigure(0, weight=0, minsize=self.SIDEBAR_WIDTH)
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(1, minsize=self.FOOTER_HEIGHT)
+
+        self.sidebar = Sidebar(self, on_navigate=self.show_page)
+        self.sidebar.grid(row=0, column=0, sticky="ns")
+
+        self.workspace = ctk.CTkFrame(
+            self, fg_color="#F8F9FE", corner_radius=0
         )
-        self.sidebar.pack(side="left", fill="y")
+        self.workspace.grid(row=0, column=1, sticky="nsew")
 
-        # Zone principale
-        self.content_area = ctk.CTkFrame(
-            self,
-            fg_color="#F3F6FA",
-            corner_radius=0
-        )
-        self.content_area.pack(
-            side="right",
-            fill="both",
-            expand=True,
-            padx=15,
-            pady=12
-        )
+        self.workspace.grid_columnconfigure(0, weight=1)
+        self.workspace.grid_rowconfigure(0, minsize=self.TOPBAR_HEIGHT)
+        self.workspace.grid_rowconfigure(1, minsize=self.HEADER_HEIGHT)
+        self.workspace.grid_rowconfigure(2, weight=1)
 
-        self.content_area.grid_columnconfigure(0, weight=1)
-        self.content_area.grid_rowconfigure(1, weight=1)
-        self.content_area.grid_rowconfigure(2, minsize=48, weight=0)
+        self.topbar = TopBar(self.workspace)
+        self.topbar.grid(row=0, column=0, sticky="ew")
 
-        # Bandeau supérieur
-        self.header = Header(self.content_area)
-        self.header.configure(height=82)
-        self.header.grid(
-            row=0,
-            column=0,
-            sticky="ew",
-            pady=(0, 12)
-        )
+        self.header = Header(self.workspace, state=self.app_state)
+        self.header.grid(row=1, column=0, sticky="nsew")
 
-        # Conteneur des pages
-        self.page_container = ctk.CTkFrame(
-            self.content_area,
-            fg_color="transparent"
+        self.page_container = ctk.CTkScrollableFrame(
+            self.workspace, fg_color="transparent"
         )
         self.page_container.grid(
-            row=1,
-            column=0,
-            sticky="nsew",
-            pady=(0, 10)
+            row=2, column=0, sticky="nsew", padx=(24, 12), pady=(8, 8)
         )
+        self.page_container.grid_columnconfigure(0, weight=1)
+        self.page_container.grid_rowconfigure(0, weight=1)
 
-        # Pied de page
-        self.footer = Footer(self.content_area)
-        self.footer.configure(height=42)
-        self.footer.grid(
-            row=2,
-            column=0,
-            sticky="ew"
-        )
+        self.footer = Footer(self)
+        self.footer.grid(row=1, column=0, columnspan=2, sticky="ew")
 
-        # Correspondance entre menu et pages
         self.pages = {
             "Accueil": HomePage,
             "Appareils": DevicesPage,
@@ -92,36 +86,63 @@ class MainWindow(ctk.CTk):
         }
 
         self.current_page = None
-
-        # Afficher la page d'accueil au démarrage
+        self.current_name = None
         self.show_page("Accueil")
 
-    def show_page(self, page_name):
+        self.bind("<Configure>", self._on_root_configure)
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.after(150, self._on_root_configure)
+        self._schedule_status_refresh()
 
+    # ------------------------------------------------------------------
+    # Navigation
+    # ------------------------------------------------------------------
+    def show_page(self, page_name):
         if page_name not in self.pages:
             return
 
-        # Supprimer l'ancienne page
         if self.current_page is not None:
             self.current_page.destroy()
 
-        # Créer la nouvelle page
         page_class = self.pages[page_name]
-
-        if page_name == "Accueil":
-            self.current_page = page_class(
-                self.page_container,
-                on_navigate=self.show_page
-            )
-        else:
-            self.current_page = page_class(
-                self.page_container
-            )
-
-        self.current_page.pack(
-            fill="both",
-            expand=True
+        self.current_page = page_class(
+            self.page_container, on_navigate=self.show_page, state=self.app_state
         )
-
-        # Actualiser le menu actif
+        self.current_page.grid(row=0, column=0, sticky="nsew")
+        self.current_name = page_name
         self.sidebar.set_active(page_name)
+
+        refresh = getattr(self.current_page, "refresh", None)
+        if page_name != "Accueil" and callable(refresh):
+            refresh()
+
+    # ------------------------------------------------------------------
+    # Cycle de vie et adaptabilité
+    # ------------------------------------------------------------------
+    def _on_root_configure(self, _event=None):
+        width = self.winfo_width()
+        if width < 1:
+            return
+        scaling = ctk.ScalingTracker.get_window_dpi_scaling(self)
+        logical_width = width / scaling if scaling else width
+        compact = logical_width < self.COMPACT_BREAKPOINT
+        if compact == self._compact:
+            return
+        self._compact = compact
+        self.grid_columnconfigure(
+            0, minsize=self.COMPACT_WIDTH if compact else self.SIDEBAR_WIDTH
+        )
+        self.sidebar.set_compact(compact)
+
+    def _schedule_status_refresh(self):
+        self.header.refresh()
+        self._status_job = self.after(10000, self._schedule_status_refresh)
+
+    def _on_close(self):
+        if self._status_job is not None:
+            try:
+                self.after_cancel(self._status_job)
+            except Exception:
+                pass
+        self.app_state.shutdown()
+        self.destroy()

@@ -17,7 +17,7 @@ class FileCard(ctk.CTkFrame):
         self.title_label = ctk.CTkLabel(
             self,
             text=title,
-            font=("Arial", 14),
+            font=("Segoe UI", 14),
             text_color="#718096"
         )
         self.title_label.pack(
@@ -30,7 +30,7 @@ class FileCard(ctk.CTkFrame):
         self.value_label = ctk.CTkLabel(
             self,
             text=value,
-            font=("Arial", 28, "bold"),
+            font=("Segoe UI", 28, "bold"),
             text_color="#142D4E"
         )
         self.value_label.pack(
@@ -43,7 +43,7 @@ class FileCard(ctk.CTkFrame):
         self.description_label = ctk.CTkLabel(
             self,
             text=description,
-            font=("Arial", 12),
+            font=("Segoe UI", 12),
             text_color="#718096"
         )
         self.description_label.pack(

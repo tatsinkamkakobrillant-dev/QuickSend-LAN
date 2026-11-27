@@ -1,23 +1,25 @@
 
 import customtkinter as ctk
 
+from frontend.components.icons import get_icon
+
 
 class AboutPage(ctk.CTkFrame):
 
-    def __init__(self, parent):
+    def __init__(self, parent, state=None, on_navigate=None):
         super().__init__(parent, fg_color="transparent")
 
         ctk.CTkLabel(
             self,
             text="À propos de QuickSend LAN",
-            font=("Arial", 23, "bold"),
+            font=("Segoe UI", 23, "bold"),
             text_color="#142D4E"
         ).pack(anchor="w", padx=20, pady=(20, 8))
 
         ctk.CTkLabel(
             self,
             text="Découvrez notre application de partage de fichiers.",
-            font=("Arial", 13),
+            font=("Segoe UI", 13),
             text_color="#52647A"
         ).pack(anchor="w", padx=20, pady=(0, 20))
 
@@ -35,51 +37,58 @@ class AboutPage(ctk.CTkFrame):
             pady=10
         )
 
+        title_frame = ctk.CTkFrame(self.about_frame, fg_color="transparent")
+        title_frame.pack(pady=(45, 10))
         ctk.CTkLabel(
-            self.about_frame,
-            text="◆ QuickSend LAN",
-            font=("Arial", 30, "bold"),
+            title_frame, text="",
+            image=get_icon("plane", "#1769D2", 38),
+            fg_color="transparent"
+        ).pack(side="left", padx=(0, 10))
+        ctk.CTkLabel(
+            title_frame,
+            text="QuickSend LAN",
+            font=("Segoe UI", 30, "bold"),
             text_color="#1769D2"
-        ).pack(pady=(45, 10))
+        ).pack(side="left")
 
         ctk.CTkLabel(
             self.about_frame,
             text="Le partage de fichiers simplifié sur votre réseau local.",
-            font=("Arial", 14),
+            font=("Segoe UI", 14),
             text_color="#52647A"
         ).pack(pady=8)
 
         ctk.CTkLabel(
             self.about_frame,
             text="Version 1.0",
-            font=("Arial", 13, "bold"),
+            font=("Segoe UI", 13, "bold"),
             text_color="#168653"
         ).pack(pady=15)
 
         ctk.CTkLabel(
             self.about_frame,
             text="Projet académique réalisé en équipe.",
-            font=("Arial", 14, "bold"),
+            font=("Segoe UI", 14, "bold"),
             text_color="#142D4E"
         ).pack(pady=(25, 12))
 
         members = [
-            "Frontend : Brillant",
+            "Frontend : Tatsinkam",
             "Backend : Etoundi",
-            "Base de données : Michelle"
+            "Base de données : Fowa"
         ]
 
         for member in members:
             ctk.CTkLabel(
                 self.about_frame,
                 text=member,
-                font=("Arial", 13),
+                font=("Segoe UI", 13),
                 text_color="#52647A"
             ).pack(pady=5)
 
         ctk.CTkLabel(
             self.about_frame,
             text="QuickSend LAN © 2026",
-            font=("Arial", 11),
+            font=("Segoe UI", 11),
             text_color="#718096"
         ).pack(pady=(30, 15))
