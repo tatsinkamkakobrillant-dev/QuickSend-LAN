@@ -6,11 +6,7 @@ from frontend.components.icons import get_icon
 
 class AboutPage(ctk.CTkFrame):
 
-<<<<<<< HEAD
     def __init__(self, parent, state=None, on_navigate=None):
-=======
-    def __init__(self, parent, service=None):
->>>>>>> origin/dev
         super().__init__(parent, fg_color="transparent")
 
         ctk.CTkLabel(
